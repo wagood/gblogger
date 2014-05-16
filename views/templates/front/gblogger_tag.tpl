@@ -1,6 +1,9 @@
 <div class="breadcrumb">
     <a title="{l s='Back home' mod='gblogger'}" href="{$base_dir}">{l s='Home' mod='gblogger'}</a>
-    	<span class="navigation-pipe">&gt;</span><span class="navigation_end">{l s='Blog' mod='gblogger'}</span>
+    	<span class="navigation-pipe">&gt;</span>
+    	<span class="navigation_end"><a title="{l s='Blog' mod='gblogger'}" href="{$gblogger_link_to_list}">{l s='Blog' mod='gblogger'}</a></span>    	
+   		<span class="navigation-pipe">&gt;</span>
+   		<span class="navigation_end">{$tag}</span>
 </div>
 {if $gblogger_posts}
 	<ul>

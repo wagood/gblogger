@@ -7,6 +7,7 @@ class GBloggertagModuleFrontController extends ModuleFrontController
  	 $this->module->init();	
 	 $this->context->smarty->assign(
 	 		array(
+	 				'tag' => $this->module->_Tag,
 	 				'paginator' => $this->module->_Paginator,
 	 				'gblogger_posts'=>$this->module->_Posts,
 	 		)

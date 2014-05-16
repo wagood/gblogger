@@ -5,14 +5,12 @@
  * @author Wagood
  * @copyright Wagood
  *
- * @todo add link_rewrite field (where to get it?)
- * @todo add friendly url pattern
  * @todo add search block
- * @todo error in paginator links (http://kpyto/module/gblogger/tag?page=2)
- * @todo create new paginator from prestashop core
  * @todo add archive block
  * @todo update sitemap
  * @todo add comments
+ * 
+ * @todo changes for prestshop v.1.6 with bootstrap
  * @todo how it will work with multishop configuration?
  * 
  */
@@ -24,15 +22,17 @@ require_once(_PS_MODULE_DIR_ . "gblogger/defines.php");
 
 class GBlogger extends Module
 {
+    public $_Posts;
+    public $_Paginator;
+    public $_Tag;
+
   public function __construct()
   {
     $this->name = MODULE_NAME;
     $this->tab = 'front_office_features';
     $this->version = '0.1';
     $this->author = 'Wagood';
-    $this->need_instance = 0;
-    //$this->ps_versions_compliancy = array('min' => '1.5', 'max' => '');
-     
+    $this->need_instance = 0;     
   
     parent::__construct();
   
@@ -47,7 +47,8 @@ class GBlogger extends Module
   	$this->gblogger_link_to_list = null;
    	$this->_Posts = null;
    	$this->_Paginator = null;
-  	$this->controller = null;	
+   	$this->_Tag = null;
+   	$this->controller = null;	
   	$this->gblogger_last_use = -1; // 1 = left, 2 = right, -1 = disable
 	$this->gblogger_tags_use = -1; // 1 = left, 2 = right, -1 = disable
 	$this->gblogger_rewrite_use = 0; // 1 = enable, 0 = disable
@@ -71,8 +72,9 @@ class GBlogger extends Module
   			!Configuration::updateValue('GBLOGGER_MAXRESULTS', '5') ||
   			!Configuration::updateValue('GBLOGGER_MAXRESULTS_LIST', '5') ||
   			!Configuration::updateValue('GBLOGGER_LAST_USE', '-1') ||  			
-  			!Configuration::updateValue('GBLOGGER_TAGS_USE', '-1') ||  			
-  			!Configuration::updateValue('GBLOGGER_REWRITE_USE', '0')  				
+  			!Configuration::updateValue('GBLOGGER_TAGS_USE', '-1') ||
+            !Configuration::updateValue('GBLOGGER_COMMENTS_USE', '-1') ||
+            !Configuration::updateValue('GBLOGGER_REWRITE_USE', '0')
   	)
   		return false;
   	return true;
@@ -81,11 +83,12 @@ class GBlogger extends Module
   public function uninstall()
   {
   	return (parent::uninstall() && Configuration::deleteByName('GBLOGGER_BLOG_ID') 
-  			&& Configuration::deleteByName('GBLOGGER_MAXRESULTS') 
-  			&& Configuration::deleteByName('GBLOGGER_MAXRESULTS_LIST')
-  			&& Configuration::deleteByName('GBLOGGER_LAST_USE')
-  			&& Configuration::deleteByName('GBLOGGER_TAGS_USE')
-  			&& Configuration::deleteByName('GBLOGGER_REWRITE_USE')
+  		&& Configuration::deleteByName('GBLOGGER_MAXRESULTS')
+  		&& Configuration::deleteByName('GBLOGGER_MAXRESULTS_LIST')
+  		&& Configuration::deleteByName('GBLOGGER_LAST_USE')
+  		&& Configuration::deleteByName('GBLOGGER_TAGS_USE')
+        && Configuration::deleteByName('GBLOGGER_COMMENTS_USE')
+  		&& Configuration::deleteByName('GBLOGGER_REWRITE_USE')
   	);
   }
 
@@ -99,7 +102,8 @@ class GBlogger extends Module
 	$this->gblogger_maxResults = (int)Configuration::get('GBLOGGER_MAXRESULTS');
 	$this->gblogger_last_use = (int)Configuration::get('GBLOGGER_LAST_USE');
 	$this->gblogger_tags_use = (int)Configuration::get('GBLOGGER_TAGS_USE');
-	$this->gblogger_rewrite_use = (int)Configuration::get('GBLOGGER_REWRITE_USE') & Configuration::get('PS_REWRITING_SETTINGS');
+    $this->gblogger_tags_use = (int)Configuration::get('GBLOGGER_COMMENTS_USE');
+    $this->gblogger_rewrite_use = (int)Configuration::get('GBLOGGER_REWRITE_USE') & Configuration::get('PS_REWRITING_SETTINGS');
 	
 	$this->gblogger_link_to_list = $this->getLinkList();
 	
@@ -115,7 +119,8 @@ class GBlogger extends Module
   	
   	$this->_Posts = NULL;
   	$this->_Paginator = NULL;
-
+  	$this->_Tag = NULL;
+  	
   	switch ($this->controller) {
   		case 'tag' :
   			// Check for internal rewrite rules
@@ -133,6 +138,8 @@ class GBlogger extends Module
   			if (!isset($text) || empty($text))
   				break;
   			
+  			$this->_Tag = $text;
+  				
   		 	$gblogger_maxResults_list = (int)Configuration::get('GBLOGGER_MAXRESULTS_LIST');
   		 	
   		 	try {
@@ -152,7 +159,7 @@ class GBlogger extends Module
 	 			try {
 	 				$post = $this->_bloggerServicePosts->get($this->gblogger_blog_id, $data->items[$i]->id);
 	 				list($post->published, $s) = explode('T', $post->published);
-	 				$post->url = $this->getLinkPost($post->id);
+	 				$post->url = $this->getLinkPost($post->id, $post->url);
 
 	 				$post->tags = array();
 	 				foreach ($post->labels as $label) 	 					
@@ -162,8 +169,10 @@ class GBlogger extends Module
 	 				$this->_Posts[] = $post;
 	 			} catch (Google_Exception $err) {}
 	 		}
-	 		$this->_Paginator = $pages->page_links();
-  		break;
+	 		$this->_Paginator = $pages->page_links($this->getLinkTag($text).($this->gblogger_rewrite_use?'?':'&'));
+  			$this->context->smarty->assign('meta_title', $this->l('All pages with tag ').$this->_Tag);
+  			$this->context->smarty->assign('meta_keywords', $this->_Tag);
+	 	break;
   		case 'list' :
   		 	$gblogger_maxResults_list = (int)Configuration::get('GBLOGGER_MAXRESULTS_LIST');
   		 	
@@ -184,8 +193,8 @@ class GBlogger extends Module
 	 			try {
 	 				$post = $this->_bloggerServicePosts->get($this->gblogger_blog_id, $data->items[$i]->id);
 	 				list($post->published, $s) = explode('T', $post->published);
-	 				$post->url = $this->getLinkPost($post->id);
-
+	 				$post->url = $this->getLinkPost($post->id, $post->url);
+                    $post->comments = $post->replies->totalItems;
 	 				$post->tags = array();
 	 				foreach ($post->labels as $label) 	 					
 	 					$post->tags[] = array('link' => $this->getLinkTag($label),
@@ -194,7 +203,7 @@ class GBlogger extends Module
 	 				$this->_Posts[] = $post;
 	 			} catch (Google_Exception $err) {}
 	 		}
-	 		$this->_Paginator = $pages->page_links();
+	 		$this->_Paginator = $pages->page_links($this->gblogger_link_to_list.($this->gblogger_rewrite_use?'?':'&'));	 			 		
   		break;
   		case 'show' :
   			// Check for internal rewrite rules
@@ -241,7 +250,7 @@ class GBlogger extends Module
   	return $url;  	
   }
   
-  public function getLinkTag ($label)
+  public function getLinkTag ($label, $suffix = '.html')
   {
   	$url = $this->context->link->getModuleLink(MODULE_NAME, 'tag', array('text' => $label));
   	if (!$this->gblogger_rewrite_use)
@@ -249,20 +258,30 @@ class GBlogger extends Module
   	
   	// parse something like http://site.com/module/gblogger/tag?text=[tag]
   	// to http://site.com/gblogger/tag/[tag].html
-  	$url = $this->context->link->getModuleLink(MODULE_NAME, 'tag/'.$label.'.html');
+  	$url = $this->context->link->getModuleLink(MODULE_NAME, 'tag/'.$label.$suffix);
   	$url = str_replace("module/", "", $url);
   	return $url;  	
   }
   
   public function getLinkPost ($id , $link_rewrite = null) 
   {
+  	// $link_rewrite like http://blog.kpyto.asia/2014/03/7-e-ceros-motion-s.html
   	$url = $this->context->link->getModuleLink(MODULE_NAME, 'show', array('id' => $id));
   	if (!$this->gblogger_rewrite_use)
   		return $url;
   	
   	// parse something like http://site.com/module/gblogger/show?id=3465180581591682476
   	// to http://site.com/gblogger/show/3465180581591682476[-link_rewrite].html
-  	$link_rewrite = isset($link_rewrite)?'-'.$link_rewrite.'.html':'.html';
+  	if (isset($link_rewrite)) {
+  		$link_rewrite = parse_url($link_rewrite);
+  		$link_rewrite = pathinfo($link_rewrite['path']);
+  		$link_rewrite = $link_rewrite['filename'];
+  		$link_rewrite = '-'.$link_rewrite.'.html';
+  	} else {
+  		$link_rewrite = '.html';
+  	}
+  	
+  	//$link_rewrite = isset($link_rewrite)?'-'.$link_rewrite.'.html':'.html';
   	$url = $this->context->link->getModuleLink(MODULE_NAME, 'show/'.$id.$link_rewrite);
   	$url = str_replace("module/", "", $url);
   	return $url;  	
@@ -353,7 +372,7 @@ class GBlogger extends Module
   	$this->_Posts = array();
   	foreach ($gblogger_data->items as $post) {
   		list($post->published, $s) = explode('T', $post->published);
-  		$post->url = $this->getLinkPost($post->id);
+  		$post->url = $this->getLinkPost($post->id, $post->url);
   		$this->_Posts[] = $post;
   	}
   	
@@ -441,6 +460,13 @@ class GBlogger extends Module
   		else
   			Configuration::updateValue('GBLOGGER_TAGS_USE', $gblogger_tags_use );
 
+        // validate and update GBLOGGER_COMMENTS_USE values
+        $gblogger_comments_use = intval(Tools::getValue('GBLOGGER_COMMENTS_USE'));
+        if (!Validate::isBool($gblogger_comments_use))
+            $output .= $this->displayError( $this->l('Invalid Configuration value GBLOGGER_COMMENTS_USE') );
+        else
+            Configuration::updateValue('GBLOGGER_COMMENTS_USE', $gblogger_comments_use );
+
   		$gblogger_rewrite_use = intval(Tools::getValue('GBLOGGER_REWRITE_USE'));
   		if (!Validate::isBool($gblogger_rewrite_use))
   			$output .= $this->displayError( $this->l('Invalid Configuration value GBLOGGER_REWRITE_USE') );
@@ -465,8 +491,8 @@ class GBlogger extends Module
   					array('id_option' => 1, 'name' => $this->l('Show in the LEFT block')),
   					array('id_option' => 2, 'name' => $this->l('Show in the RIGHT block')),
   			);
-  	
-  	$_rewrite = array(
+
+      $_enable = array(
   					array('id_option' => 0, 'name' => $this->l('Disabled')),
   					array('id_option' => 1, 'name' => $this->l('Enabled')),
   			);
@@ -519,13 +545,24 @@ class GBlogger extends Module
   									'name' => 'name',
   							)
   					),
+                array(
+                    'type' => 'select',
+                    'label' => $this->l('Show Comments'),
+                    'name' => 'GBLOGGER_COMMENTS_USE',
+                    'required' => true,
+                    'options' => array(
+                        'query' => $_enable,
+                        'id' => 'id_option',
+                        'name' => 'name',
+                    )
+                ),
   					array(
   							'type' => 'select',
   							'label' => $this->l('URL Rewriting'),
   							'name' => 'GBLOGGER_REWRITE_USE',
   							'required' => true,
   							'options' => array(
-  									'query' => $_rewrite,
+  									'query' => $_enable,
   									'id' => 'id_option',
   									'name' => 'name',
   							)
@@ -574,7 +611,9 @@ class GBlogger extends Module
   	$helper->fields_value['GBLOGGER_MAXRESULTS_LIST'] = Configuration::get('GBLOGGER_MAXRESULTS_LIST');
   	$helper->fields_value['GBLOGGER_LAST_USE'] = Configuration::get('GBLOGGER_LAST_USE');
   	$helper->fields_value['GBLOGGER_TAGS_USE'] = Configuration::get('GBLOGGER_TAGS_USE');
-  	$helper->fields_value['GBLOGGER_REWRITE_USE'] = Configuration::get('GBLOGGER_REWRITE_USE');
+    $helper->fields_value['GBLOGGER_COMMENTS_USE'] = Configuration::get('GBLOGGER_COMMENTS_USE');
+    $helper->fields_value['GBLOGGER_REWRITE_USE'] = Configuration::get('GBLOGGER_REWRITE_USE');
+
   	 
   	return $helper->generateForm($fields_form);
   }
